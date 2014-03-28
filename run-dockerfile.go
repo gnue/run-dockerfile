@@ -38,6 +38,8 @@ func runDockerfile(path string) error {
 
 	// 正規表現のコンパイル
 	re := regexp.MustCompile("(?i)^ *(ONBUILD +)?([A-Z]+) +([^#]+)")
+	re_args := regexp.MustCompile("(?i)^([^ ]+) +(.+)")
+
 	var workdir string
 	lineno := 0
 
@@ -70,6 +72,10 @@ func runDockerfile(path string) error {
 				// iptables があれば書換える
 			case "ENV":
 				// 環境変数を設定
+				match_args := re_args.FindStringSubmatch(args)
+				if match_args != nil {
+					os.Setenv(match_args[1], match_args[2])
+				}
 			case "ADD":
 				// ファイルを追加
 			case "ENTRYPOINT":
