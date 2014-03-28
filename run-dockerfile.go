@@ -38,6 +38,7 @@ func runDockerfile(path string) error {
 
 	// 正規表現のコンパイル
 	re := regexp.MustCompile("(?i)^ *(ONBUILD +)?([A-Z]+) +([^#]+)")
+	var workdir string
 	lineno := 0
 
 	for scanner.Scan() {
@@ -57,6 +58,7 @@ func runDockerfile(path string) error {
 			case "RUN":
 				// スクリプトを実行
 				cmd := exec.Command("/bin/sh", "-c", args)
+				cmd.Dir = workdir
 				out, err := cmd.Output()
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", path, lineno, err, args)
@@ -77,6 +79,7 @@ func runDockerfile(path string) error {
 				// ユーザを設定
 			case "WORKDIR":
 				// 作業ディレクトリを変更
+				workdir = args
 			}
 		}
 	}
