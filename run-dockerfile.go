@@ -48,13 +48,20 @@ func runDockerfile(path string, opts *options) error {
 	lineno := 0
 
 	command := []string{"/bin/sh", "-c"}
+	copy := []string{"/bin/cp"}
 
 	if 0 < len(opts.host) {
 		ssh, err := exec.LookPath("ssh")
 		if err != nil {
 			return err
 		}
+		scp, err := exec.LookPath("scp")
+		if err != nil {
+			return err
+		}
 		command = []string{ssh, opts.host}
+		copy = []string{scp}
+
 	}
 
 	for scanner.Scan() {
@@ -94,6 +101,29 @@ func runDockerfile(path string, opts *options) error {
 				}
 			case "ADD":
 				// ファイルを追加
+				match_args := re_args.FindStringSubmatch(args)
+				if match_args != nil {
+					src := match_args[1]
+					dst := match_args[2]
+
+					if 0 < len(workdir) && !filepath.IsAbs(dst) {
+						// コピー先のパスを生成する
+						dst = filepath.Join(workdir, dst)
+					}
+
+					if 0 < len(opts.host) {
+						// リモート・パスを生成する
+						dst = fmt.Sprintf("%s:%s", opts.host, dst)
+					}
+
+					cmd := exec.Command(copy[0], src, dst)
+					out, err := cmd.Output()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", path, lineno, err, args)
+						return err
+					}
+					fmt.Printf("%s", out)
+				}
 			case "ENTRYPOINT":
 			case "VOLUME":
 				// 何もしない
