@@ -10,6 +10,10 @@ import (
 	"regexp"
 )
 
+type options struct {
+	host string
+}
+
 // コマンドの使い方
 func usage() {
 	cmd := os.Args[0]
@@ -19,7 +23,7 @@ func usage() {
 }
 
 // Dockerfile の実行
-func runDockerfile(path string) error {
+func runDockerfile(path string, opts *options) error {
 	var file *os.File
 	var err error
 
@@ -43,6 +47,16 @@ func runDockerfile(path string) error {
 	var workdir string
 	lineno := 0
 
+	command := []string{"/bin/sh", "-c"}
+
+	if 0 < len(opts.host) {
+		ssh, err := exec.LookPath("ssh")
+		if err != nil {
+			return err
+		}
+		command = []string{ssh, opts.host}
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		lineno += 1
@@ -59,8 +73,10 @@ func runDockerfile(path string) error {
 				// 何もしない
 			case "RUN":
 				// スクリプトを実行
-				cmd := exec.Command("/bin/sh", "-c", args)
-				cmd.Dir = workdir
+				if 0 < len(workdir) {
+					args = fmt.Sprintf("cd %s; %s", workdir, args)
+				}
+				cmd := exec.Command(command[0], append(command[1:], args)...)
 				out, err := cmd.Output()
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", path, lineno, err, args)
@@ -98,6 +114,9 @@ func runDockerfile(path string) error {
 }
 
 func main() {
+	var opts options
+
+	flag.StringVar(&opts.host, "H", "", "host")
 	help := flag.Bool("h", false, "help")
 	flag.Parse()
 
@@ -106,10 +125,10 @@ func main() {
 	}
 
 	if len(flag.Args()) == 0 {
-		runDockerfile("Dockerfile")
+		runDockerfile("Dockerfile", &opts)
 	} else {
 		for _, v := range flag.Args() {
-			runDockerfile(v)
+			runDockerfile(v, &opts)
 		}
 	}
 }
