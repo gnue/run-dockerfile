@@ -21,9 +21,9 @@ type context struct {
 	path   string // 処理中のファイル
 	lineno uint   // 処理中の行番号
 
-	env     map[string]string // 環境変数
-	user    string            // ユーザ
-	workdir string            // 作業ディレクトリ
+	env     []string // 環境変数
+	user    string   // ユーザ
+	workdir string   // 作業ディレクトリ
 
 	remote  bool     // リモート実行
 	cmd_run []string // RUN命令
@@ -41,6 +41,11 @@ func usage() {
 // コマンドの実行
 func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
 	cmd := exec.Command(name, arg...)
+
+	if !ctx.remote {
+		cmd.Env = append(cmd.Env, ctx.env...)
+	}
+
 	out, err := cmd.Output()
 	if 0 < len(out) {
 		fmt.Printf("%s", out)
@@ -54,7 +59,6 @@ func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
 
 // 初期化
 func (ctx *context) init() error {
-	ctx.env = make(map[string]string)
 	ctx.remote = (0 < len(ctx.host))
 
 	if ctx.remote {
@@ -102,8 +106,7 @@ func (ctx *context) add(src string, dst string) (*exec.Cmd, error) {
 
 // ENV命令
 func (ctx *context) set_env(key string, val string) {
-	ctx.env[key] = val
-	os.Setenv(key, val)
+	ctx.env = append(ctx.env, fmt.Sprintf("%s=%s", key, val))
 }
 
 // Dockerfile の実行
