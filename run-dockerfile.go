@@ -17,8 +17,16 @@ type options struct {
 
 // 実行コンテキスト
 type context struct {
+	host   string // リモートホスト
 	path   string // 処理中のファイル
 	lineno uint   // 処理中の行番号
+
+	env     map[string]string // 環境変数
+	user    string            // ユーザ
+	workdir string            // 作業ディレクトリ
+
+	cmd_run []string // RUN命令
+	cmd_add []string // ADD命令
 }
 
 // コマンドの使い方
@@ -43,6 +51,29 @@ func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
 	return cmd, err
 }
 
+// 初期化
+func (ctx *context) init() error {
+	ctx.env = make(map[string]string)
+
+	if 0 < len(ctx.host) {
+		ssh, err := exec.LookPath("ssh")
+		if err != nil {
+			return err
+		}
+		scp, err := exec.LookPath("scp")
+		if err != nil {
+			return err
+		}
+		ctx.cmd_run = []string{ssh, ctx.host}
+		ctx.cmd_add = []string{scp}
+	} else {
+		ctx.cmd_run = []string{"/bin/sh", "-c"}
+		ctx.cmd_add = []string{"/bin/cp"}
+	}
+
+	return nil
+}
+
 // Dockerfile の実行
 func runDockerfile(path string, opts *options) error {
 	var file *os.File
@@ -65,24 +96,11 @@ func runDockerfile(path string, opts *options) error {
 	re := regexp.MustCompile("(?i)^ *(ONBUILD +)?([A-Z]+) +([^#]+)")
 	re_args := regexp.MustCompile("(?i)^([^ ]+) +(.+)")
 
-	var workdir string
-	ctx := context{path: path, lineno: 0}
+	ctx := context{host: opts.host, path: path}
 
-	command := []string{"/bin/sh", "-c"}
-	copy := []string{"/bin/cp"}
-
-	if 0 < len(opts.host) {
-		ssh, err := exec.LookPath("ssh")
-		if err != nil {
-			return err
-		}
-		scp, err := exec.LookPath("scp")
-		if err != nil {
-			return err
-		}
-		command = []string{ssh, opts.host}
-		copy = []string{scp}
-
+	err = ctx.init()
+	if err != nil {
+		return err
 	}
 
 	for scanner.Scan() {
@@ -101,10 +119,10 @@ func runDockerfile(path string, opts *options) error {
 				// 何もしない
 			case "RUN":
 				// スクリプトを実行
-				if 0 < len(workdir) {
-					args = fmt.Sprintf("cd %s; %s", workdir, args)
+				if 0 < len(ctx.workdir) {
+					args = fmt.Sprintf("cd %s; %s", ctx.workdir, args)
 				}
-				_, err := ctx.execl(command[0], append(command[1:], args)...)
+				_, err := ctx.execl(ctx.cmd_run[0], append(ctx.cmd_run[1:], args)...)
 				if err != nil {
 					return err
 				}
@@ -115,7 +133,11 @@ func runDockerfile(path string, opts *options) error {
 				// 環境変数を設定
 				match_args := re_args.FindStringSubmatch(args)
 				if match_args != nil {
-					os.Setenv(match_args[1], match_args[2])
+					key := match_args[1]
+					val := match_args[2]
+
+					ctx.env[key] = val
+					os.Setenv(key, val)
 				}
 			case "ADD":
 				// ファイルを追加
@@ -124,17 +146,17 @@ func runDockerfile(path string, opts *options) error {
 					src := match_args[1]
 					dst := match_args[2]
 
-					if 0 < len(workdir) && !filepath.IsAbs(dst) {
+					if 0 < len(ctx.workdir) && !filepath.IsAbs(dst) {
 						// コピー先のパスを生成する
-						dst = filepath.Join(workdir, dst)
+						dst = filepath.Join(ctx.workdir, dst)
 					}
 
-					if 0 < len(opts.host) {
+					if 0 < len(ctx.host) {
 						// リモート・パスを生成する
-						dst = fmt.Sprintf("%s:%s", opts.host, dst)
+						dst = fmt.Sprintf("%s:%s", ctx.host, dst)
 					}
 
-					_, err := ctx.execl(copy[0], src, dst)
+					_, err := ctx.execl(ctx.cmd_add[0], src, dst)
 					if err != nil {
 						return err
 					}
@@ -144,9 +166,10 @@ func runDockerfile(path string, opts *options) error {
 				// 何もしない
 			case "USER":
 				// ユーザを設定
+				ctx.user = args
 			case "WORKDIR":
 				// 作業ディレクトリを変更
-				workdir = args
+				ctx.workdir = args
 			}
 		}
 	}
