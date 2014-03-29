@@ -25,6 +25,7 @@ type context struct {
 	user    string            // ユーザ
 	workdir string            // 作業ディレクトリ
 
+	remote  bool     // リモート実行
 	cmd_run []string // RUN命令
 	cmd_add []string // ADD命令
 }
@@ -54,8 +55,9 @@ func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
 // 初期化
 func (ctx *context) init() error {
 	ctx.env = make(map[string]string)
+	ctx.remote = (0 < len(ctx.host))
 
-	if 0 < len(ctx.host) {
+	if ctx.remote {
 		ssh, err := exec.LookPath("ssh")
 		if err != nil {
 			return err
@@ -72,6 +74,36 @@ func (ctx *context) init() error {
 	}
 
 	return nil
+}
+
+// RUN命令
+func (ctx *context) run(arg string) (*exec.Cmd, error) {
+	if 0 < len(ctx.workdir) {
+		arg = fmt.Sprintf("cd %s; %s", ctx.workdir, arg)
+	}
+
+	return ctx.execl(ctx.cmd_run[0], append(ctx.cmd_run[1:], arg)...)
+}
+
+// ADD命令
+func (ctx *context) add(src string, dst string) (*exec.Cmd, error) {
+	if 0 < len(ctx.workdir) && !filepath.IsAbs(dst) {
+		// コピー先のパスを生成する
+		dst = filepath.Join(ctx.workdir, dst)
+	}
+
+	if ctx.remote {
+		// リモート・パスを生成する
+		dst = fmt.Sprintf("%s:%s", ctx.host, dst)
+	}
+
+	return ctx.execl(ctx.cmd_add[0], src, dst)
+}
+
+// ENV命令
+func (ctx *context) set_env(key string, val string) {
+	ctx.env[key] = val
+	os.Setenv(key, val)
 }
 
 // Dockerfile の実行
@@ -119,10 +151,7 @@ func runDockerfile(path string, opts *options) error {
 				// 何もしない
 			case "RUN":
 				// スクリプトを実行
-				if 0 < len(ctx.workdir) {
-					args = fmt.Sprintf("cd %s; %s", ctx.workdir, args)
-				}
-				_, err := ctx.execl(ctx.cmd_run[0], append(ctx.cmd_run[1:], args)...)
+				_, err := ctx.run(args)
 				if err != nil {
 					return err
 				}
@@ -133,30 +162,13 @@ func runDockerfile(path string, opts *options) error {
 				// 環境変数を設定
 				match_args := re_args.FindStringSubmatch(args)
 				if match_args != nil {
-					key := match_args[1]
-					val := match_args[2]
-
-					ctx.env[key] = val
-					os.Setenv(key, val)
+					ctx.set_env(match_args[1], match_args[2])
 				}
 			case "ADD":
 				// ファイルを追加
 				match_args := re_args.FindStringSubmatch(args)
 				if match_args != nil {
-					src := match_args[1]
-					dst := match_args[2]
-
-					if 0 < len(ctx.workdir) && !filepath.IsAbs(dst) {
-						// コピー先のパスを生成する
-						dst = filepath.Join(ctx.workdir, dst)
-					}
-
-					if 0 < len(ctx.host) {
-						// リモート・パスを生成する
-						dst = fmt.Sprintf("%s:%s", ctx.host, dst)
-					}
-
-					_, err := ctx.execl(ctx.cmd_add[0], src, dst)
+					_, err := ctx.add(match_args[1], match_args[2])
 					if err != nil {
 						return err
 					}
