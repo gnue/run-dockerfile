@@ -10,8 +10,15 @@ import (
 	"regexp"
 )
 
+// オプション
 type options struct {
-	host string
+	host string // リモートホスト
+}
+
+// 実行コンテキスト
+type context struct {
+	path   string // 処理中のファイル
+	lineno uint   // 処理中の行番号
 }
 
 // コマンドの使い方
@@ -20,6 +27,20 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "usage: %s [options] [file...]\n", filepath.Base(cmd))
 	flag.PrintDefaults()
 	os.Exit(0)
+}
+
+// コマンドの実行
+func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
+	cmd := exec.Command(name, arg...)
+	out, err := cmd.Output()
+	if 0 < len(out) {
+		fmt.Printf("%s", out)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", ctx.path, ctx.lineno, err, arg)
+	}
+
+	return cmd, err
 }
 
 // Dockerfile の実行
@@ -45,7 +66,7 @@ func runDockerfile(path string, opts *options) error {
 	re_args := regexp.MustCompile("(?i)^([^ ]+) +(.+)")
 
 	var workdir string
-	lineno := 0
+	ctx := context{path: path, lineno: 0}
 
 	command := []string{"/bin/sh", "-c"}
 	copy := []string{"/bin/cp"}
@@ -66,7 +87,7 @@ func runDockerfile(path string, opts *options) error {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		lineno += 1
+		ctx.lineno += 1
 		match := re.FindStringSubmatch(line)
 		if match != nil {
 			//onbuild := match[1]
@@ -83,13 +104,10 @@ func runDockerfile(path string, opts *options) error {
 				if 0 < len(workdir) {
 					args = fmt.Sprintf("cd %s; %s", workdir, args)
 				}
-				cmd := exec.Command(command[0], append(command[1:], args)...)
-				out, err := cmd.Output()
+				_, err := ctx.execl(command[0], append(command[1:], args)...)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", path, lineno, err, args)
 					return err
 				}
-				fmt.Printf("%s", out)
 			case "CMD":
 			case "EXPOSE":
 				// iptables があれば書換える
@@ -116,13 +134,10 @@ func runDockerfile(path string, opts *options) error {
 						dst = fmt.Sprintf("%s:%s", opts.host, dst)
 					}
 
-					cmd := exec.Command(copy[0], src, dst)
-					out, err := cmd.Output()
+					_, err := ctx.execl(copy[0], src, dst)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", path, lineno, err, args)
 						return err
 					}
-					fmt.Printf("%s", out)
 				}
 			case "ENTRYPOINT":
 			case "VOLUME":
