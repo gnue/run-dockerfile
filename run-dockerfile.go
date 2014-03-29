@@ -41,15 +41,14 @@ func usage() {
 // コマンドの実行
 func (ctx *context) execl(name string, arg ...string) (*exec.Cmd, error) {
 	cmd := exec.Command(name, arg...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	if !ctx.remote {
 		cmd.Env = append(cmd.Env, ctx.env...)
 	}
 
-	out, err := cmd.Output()
-	if 0 < len(out) {
-		fmt.Printf("%s", out)
-	}
+	err := cmd.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s:%d: %s : %s\n", ctx.path, ctx.lineno, err, arg)
 	}
