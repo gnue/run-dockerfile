@@ -116,6 +116,17 @@ func runDockerfile(path string, opts *options) error {
 	if len(path) == 0 {
 		file = os.Stdin
 	} else {
+		finfo, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+
+		if finfo.IsDir() {
+			// ディレクトリの場合
+			os.Chdir(path)
+			path = "Dockerfile"
+		}
+
 		file, err = os.Open(path)
 		if err != nil {
 			// エラー処理をする
@@ -207,7 +218,7 @@ func main() {
 	}
 
 	if len(flag.Args()) == 0 {
-		runDockerfile("Dockerfile", &opts)
+		runDockerfile(".", &opts)
 	} else {
 		for _, v := range flag.Args() {
 			runDockerfile(v, &opts)
