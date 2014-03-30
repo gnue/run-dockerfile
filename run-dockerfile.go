@@ -111,7 +111,6 @@ func (ctx *context) set_env(key string, val string) {
 // Dockerfile の実行
 func runDockerfile(path string, opts *options) error {
 	var file *os.File
-	var err error
 
 	if len(path) == 0 {
 		file = os.Stdin
@@ -143,7 +142,7 @@ func runDockerfile(path string, opts *options) error {
 
 	ctx := context{host: opts.host, path: path}
 
-	err = ctx.init()
+	err := ctx.init()
 	if err != nil {
 		return err
 	}
